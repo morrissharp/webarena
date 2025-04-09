@@ -1,4 +1,5 @@
 """base class for evaluation"""
+
 # answer string match
 import collections
 import html
@@ -7,15 +8,12 @@ import json
 import time
 import urllib
 from pathlib import Path
-from typing import Any, Tuple, Union, Optional
+from typing import Any, Optional, Tuple, Union
 
-from beartype import beartype
 import nltk
-nltk.download('punkt')
-from nltk.tokenize import word_tokenize  # type: ignore
+from beartype import beartype
 
-from playwright.sync_api import CDPSession, Page
-
+nltk.download("punkt")
 from browser_env.actions import Action
 from browser_env.utils import StateInfo
 from evaluation_harness.helper_functions import (
@@ -28,6 +26,8 @@ from evaluation_harness.helper_functions import (
     shopping_get_sku_latest_review_author,
     shopping_get_sku_latest_review_rating,
 )
+from nltk.tokenize import word_tokenize  # type: ignore
+from playwright.sync_api import CDPSession, Page
 
 Trajectory = list[Union[Action, StateInfo]]
 
@@ -52,9 +52,7 @@ class Evaluator(object):
             # is_bearable(trajectory[-1], Action)
             last_action = trajectory[-1]
         except Exception:
-            raise ValueError(
-                "The last element of trajectory should be an action, add a fake stop action if needed"
-            )
+            raise ValueError("The last element of trajectory should be an action, add a fake stop action if needed")
 
         return last_action  # type: ignore[return-value]
 
@@ -91,10 +89,7 @@ class StringEvaluator(Evaluator):
     @staticmethod
     @beartype
     def exact_match(ref: str, pred: str) -> float:
-        return float(
-            StringEvaluator.clean_answer(pred)
-            == StringEvaluator.clean_answer(ref)
-        )
+        return float(StringEvaluator.clean_answer(pred) == StringEvaluator.clean_answer(ref))
 
     @staticmethod
     @beartype
@@ -107,11 +102,7 @@ class StringEvaluator(Evaluator):
             refs = clean_ref.split(" |or| ") if " |or| " in clean_ref else clean_ref.split(" |OR| ")
             refs = [r.strip() for r in refs]
             for r in refs:
-                if (
-                    tokenize
-                    and len(r) == 1
-                    and len(word_tokenize(r)) == 1
-                ):
+                if tokenize and len(r) == 1 and len(word_tokenize(r)) == 1:
                     tok_pred = word_tokenize(r)
                     if r in tok_pred:
                         return float(r in tok_pred)
@@ -119,11 +110,7 @@ class StringEvaluator(Evaluator):
                     if r in clean_pred:
                         return float(r in clean_pred)
             return 0.0
-        if (
-            tokenize
-            and len(clean_ref) == 1
-            and len(word_tokenize(clean_ref)) == 1
-        ):
+        if tokenize and len(clean_ref) == 1 and len(word_tokenize(clean_ref)) == 1:
             tok_pred = word_tokenize(clean_pred)
             return float(clean_ref in tok_pred)
         else:
@@ -160,7 +147,7 @@ class StringEvaluator(Evaluator):
 
                 case "must_include":
                     assert isinstance(value, list)
-                    must_include_score = 0.
+                    must_include_score = 0.0
                     for must_value in value:
                         must_include_score += self.must_include(
                             ref=must_value,
@@ -188,9 +175,7 @@ class StringEvaluator(Evaluator):
                             fuzzy_match_value = "; ".join(value)
                         else:
                             fuzzy_match_value = value
-                        fuzzy_match_score = self.fuzzy_match(
-                            ref=fuzzy_match_value, pred=pred, intent=intent
-                        )
+                        fuzzy_match_score = self.fuzzy_match(ref=fuzzy_match_value, pred=pred, intent=intent)
                         score *= fuzzy_match_score
         return score
 
@@ -239,7 +224,9 @@ class URLEvaluator(Evaluator):
         matching_rule = configs["eval"].get("url_note", "GOLD in PRED")
         if matching_rule == "GOLD in PRED":
             if "or" in configs["eval"].keys():
-                or_ref_urls_list = [configs["eval"]["reference_url"]] + [item["reference_url"] for item in configs["eval"]["or"]]
+                or_ref_urls_list = [configs["eval"]["reference_url"]] + [
+                    item["reference_url"] for item in configs["eval"]["or"]
+                ]
             else:
                 or_ref_urls_list = [configs["eval"]["reference_url"]]
             or_score_list = []
@@ -249,21 +236,11 @@ class URLEvaluator(Evaluator):
                 ref_base_paths, ref_queries = parse_urls(ref_urls)
                 pred_base_paths, pred_query = parse_url(pred)
 
-                base_score = float(
-                    any(
-                        [
-                            ref_base_path in pred_base_paths
-                            for ref_base_path in ref_base_paths
-                        ]
-                    )
-                )
+                base_score = float(any([ref_base_path in pred_base_paths for ref_base_path in ref_base_paths]))
                 query_score = 1.0
                 for k, possible_values in ref_queries.items():
                     query_score *= float(
-                        any(
-                            possible_ref_value in pred_query.get(k, [])
-                            for possible_ref_value in possible_values
-                        )
+                        any(possible_ref_value in pred_query.get(k, []) for possible_ref_value in possible_values)
                     )
                 or_score_list.append(base_score * query_score)
             score = max(or_score_list)
@@ -290,6 +267,10 @@ class HTMLContentEvaluator(Evaluator):
 
         targets = configs["eval"]["program_html"]
 
+        def print_html(html, max_len=100):
+            if len(html) > max_len:
+                return html[:max_len] + f"... ({len(html)} characters)"
+
         score = 1.0
         for target in targets:
             if "or" in target.keys():
@@ -315,9 +296,7 @@ class HTMLContentEvaluator(Evaluator):
                 if not locator.strip():
                     selected_element = page.content()
                 # use JS to select the element
-                elif locator.startswith("document.") or locator.startswith(
-                    "[...document."
-                ):
+                elif locator.startswith("document.") or locator.startswith("[...document."):
                     if "prep_actions" in or_target:
                         try:
                             for prep_action in or_target["prep_actions"]:
@@ -343,11 +322,11 @@ class HTMLContentEvaluator(Evaluator):
 
                 if "exact_match" in or_target["required_contents"]:
                     required_contents = or_target["required_contents"]["exact_match"]
-                    cur_score = StringEvaluator.exact_match(
-                        ref=required_contents, pred=selected_element
-                    )
+                    cur_score = StringEvaluator.exact_match(ref=required_contents, pred=selected_element)
                     or_score_list.append(cur_score)
-                    print(f"[exact match] {cur_score}, selected element: {selected_element}, required contents: {required_contents}")
+                    print(
+                        f"[exact match] {cur_score}, selected element: {print_html(selected_element)}, required contents: {required_contents}"
+                    )
                 elif "must_include" in or_target["required_contents"]:
                     required_contents = or_target["required_contents"]["must_include"]
                     assert isinstance(required_contents, list)
@@ -366,12 +345,12 @@ class HTMLContentEvaluator(Evaluator):
                         )
                         content_score_list.append(cur_score)
                         # score *= float(cur_score)
-                        print(f"[must include] {cur_score}, selected element: {selected_element}, required contents: {content_or}")
-                    or_score_list.append(sum(content_score_list)/len(content_score_list))
+                        print(
+                            f"[must include] {cur_score}, selected element: {print_html(selected_element)}, required contents: {content_or}"
+                        )
+                    or_score_list.append(sum(content_score_list) / len(content_score_list))
                 else:
-                    raise ValueError(
-                        f"Unknown required_contents: {or_target['required_contents'].keys()}"
-                    )
+                    raise ValueError(f"Unknown required_contents: {or_target['required_contents'].keys()}")
             or_score = max(or_score_list)
             score *= or_score
 
